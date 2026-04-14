@@ -157,10 +157,24 @@ def fetch_projection():
     candidatos.sort(key=lambda x: x["pct_proyectado"], reverse=True)
 
     # Monte Carlo simulation (vectorized, top 5 only)
+    # Uses INTRA-DEPARTMENT std from district-level analysis (pre-calculated)
+    # This reflects the real uncertainty of pending actas within each department
+    INTRA_DEPT_STD = {
+        "FUERZA POPULAR": 6.759,
+        "RENOVACIÓN POPULAR": 3.869,
+        "PARTIDO DEL BUEN GOBIERNO": 3.492,
+        "JUNTOS POR EL PERÚ": 12.245,
+        "PARTIDO CÍVICO OBRAS": 3.842,
+        "PARTIDO PAÍS PARA TODOS": 2.794,
+        "AHORA NACIÓN - AN": 3.185,
+        "PRIMERO LA GENTE – COMUNIDAD, ECOLOGÍA, LIBERTAD Y PROGRESO": 1.353,
+        "PARTIDO SICREO": 1.239,
+        "PARTIDO FRENTE DE LA ESPERANZA 2021": 0.878,
+    }
+
     top5_partidos = [c["partido"] for c in candidatos[:5]]
     N_SIMS = 5000
 
-    # Build per-department observed % and weights
     depto_names = df_meta["departamento"].values
     n_deptos = len(depto_names)
     n_top5 = 5
@@ -182,20 +196,15 @@ def fetch_projection():
                 pct_val = matching[0].get("porcentajeVotosValidos")
                 pct_matrix[i, j] = pct_val if pct_val is not None else 0
 
-    # Std per candidate across departments
-    std_vec = np.array([
-        np.std(pct_matrix[:, j][pct_matrix[:, j] > 0]) if np.sum(pct_matrix[:, j] > 0) > 1 else 2.0
-        for j in range(n_top5)
-    ])
+    # Use pre-calculated intra-department std from district analysis
+    std_vec = np.array([INTRA_DEPT_STD.get(p, 2.0) for p in top5_partidos])
 
     mc_pcts = np.zeros((N_SIMS, n_top5))
     for sim in range(N_SIMS):
         noise = np.random.randn(n_deptos, n_top5) * std_vec[np.newaxis, :] * uncert_vec[:, np.newaxis]
         sim_pct = np.maximum(0, pct_matrix + noise)
-        weighted = (sim_pct * weight_vec[:, np.newaxis]).sum(axis=0)
-        total_w = weighted.sum()
-        if total_w > 0:
-            mc_pcts[sim, :] = weighted / total_w * 100
+        # No normalization: weighted sum of % already gives national %
+        mc_pcts[sim, :] = (sim_pct * weight_vec[:, np.newaxis]).sum(axis=0)
 
     mc_data = []
     for j in range(n_top5):
