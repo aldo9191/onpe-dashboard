@@ -463,6 +463,11 @@ DASHBOARD_HTML = r"""
             </div>
 
             <div class="card">
+                <h2>Proyeccion Promedio (Monte Carlo)</h2>
+                <div id="mcTable"></div>
+            </div>
+
+            <div class="card">
                 <h2>Avance de Actas por Departamento</h2>
                 <div style="max-height:350px;overflow-y:auto;">
                     <table class="dept-table" id="deptTable">
@@ -713,6 +718,34 @@ DASHBOARD_HTML = r"""
                     }
                 }
             });
+        }
+
+        // Monte Carlo table
+        if (data.monte_carlo && data.monte_carlo.length > 0) {
+            let mctHtml = `
+                <table class="dept-table" style="font-size:0.85em;">
+                    <thead><tr>
+                        <th>Candidato</th>
+                        <th style="text-align:right">% Actual</th>
+                        <th style="text-align:right">% Proy.</th>
+                        <th style="text-align:right">MC Mean</th>
+                        <th style="text-align:right">IC 90%</th>
+                    </tr></thead><tbody>`;
+            data.monte_carlo.forEach((m, i) => {
+                const c = data.candidatos[i];
+                const diffMC = m.mean - m.pct_actual;
+                const diffClass = diffMC >= 0 ? 'positive' : 'negative';
+                const diffSign = diffMC >= 0 ? '+' : '';
+                mctHtml += `<tr>
+                    <td style="font-weight:600;color:${COLORS[i]}">${shortName(m.candidato)}</td>
+                    <td style="text-align:right;color:#8899aa">${m.pct_actual.toFixed(2)}%</td>
+                    <td style="text-align:right">${c.pct_proyectado.toFixed(2)}%</td>
+                    <td style="text-align:right;font-weight:bold;color:${COLORS[i]}">${m.mean.toFixed(2)}%</td>
+                    <td style="text-align:right;font-size:0.9em;color:#8899aa">[${m.p5.toFixed(2)} - ${m.p95.toFixed(2)}]</td>
+                </tr>`;
+            });
+            mctHtml += '</tbody></table>';
+            document.getElementById('mcTable').innerHTML = mctHtml;
         }
 
         // Department table
