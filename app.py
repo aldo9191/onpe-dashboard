@@ -386,9 +386,39 @@ DASHBOARD_HTML = r"""
         .full-width { grid-column: 1 / -1; }
 
         @media (max-width: 900px) {
-            .main-grid { grid-template-columns: 1fr; }
-            .stats-bar { grid-template-columns: repeat(2, 1fr); }
-            .candidate-row { grid-template-columns: 25px 1fr 90px 90px 65px 65px 55px; font-size: 0.85em; }
+            .header { flex-direction: column; text-align: center; padding: 15px; gap: 10px; }
+            .header-info { text-align: center; }
+            .header h1 { font-size: 1.2em; }
+            .container { padding: 10px; }
+            .main-grid { grid-template-columns: 1fr; gap: 12px; }
+            .stats-bar { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+            .stat-card { padding: 12px; }
+            .stat-card .value { font-size: 1.3em; }
+            .card { padding: 12px; }
+            .card h2 { font-size: 0.95em; }
+            .chart-container { height: 280px; }
+            .candidate-row {
+                grid-template-columns: 22px 1fr 70px 70px 55px;
+                font-size: 0.8em; padding: 8px 4px; gap: 4px;
+            }
+            .candidate-row .pos { font-size: 1em; }
+            .candidate-row .name { font-size: 0.8em; }
+            .candidate-row .party { font-size: 0.65em; }
+            .candidate-row .pct-hide-mobile { display: none; }
+            .dept-table { font-size: 0.7em; }
+            .metodologia { font-size: 0.7em; padding: 10px; }
+            .auto-refresh { justify-content: center; }
+        }
+
+        @media (max-width: 480px) {
+            .stats-bar { grid-template-columns: repeat(2, 1fr); gap: 6px; }
+            .stat-card .value { font-size: 1.1em; }
+            .stat-card .label { font-size: 0.7em; }
+            .candidate-row {
+                grid-template-columns: 20px 1fr 60px 55px;
+                font-size: 0.75em; padding: 6px 2px;
+            }
+            .chart-container { height: 240px; }
         }
     </style>
 </head>
@@ -556,9 +586,9 @@ DASHBOARD_HTML = r"""
         let html = `
             <div class="candidate-row" style="border-bottom:2px solid #2a3a4a;padding-bottom:6px;margin-bottom:4px;">
                 <div style="font-size:0.75em;color:#4fc3f7;font-weight:600">#</div>
-                <div style="font-size:0.75em;color:#4fc3f7;font-weight:600">Candidato / Partido</div>
-                <div style="font-size:0.75em;color:#4fc3f7;font-weight:600;text-align:right">Votos Reales</div>
-                <div style="font-size:0.75em;color:#4fc3f7;font-weight:600;text-align:right">Votos Proy.</div>
+                <div style="font-size:0.75em;color:#4fc3f7;font-weight:600">Candidato</div>
+                <div class="pct-hide-mobile" style="font-size:0.75em;color:#4fc3f7;font-weight:600;text-align:right">Votos Reales</div>
+                <div class="pct-hide-mobile" style="font-size:0.75em;color:#4fc3f7;font-weight:600;text-align:right">Votos Proy.</div>
                 <div style="font-size:0.75em;color:#4fc3f7;font-weight:600;text-align:right">% Actual</div>
                 <div style="font-size:0.75em;color:#4fc3f7;font-weight:600;text-align:right">% Proy.</div>
                 <div style="font-size:0.75em;color:#4fc3f7;font-weight:600;text-align:right">Dif.</div>
@@ -575,8 +605,8 @@ DASHBOARD_HTML = r"""
                         <div class="party">${c.partido}</div>
                         <div class="bar-container"><div class="bar-fill" style="width:${barWidth}%;background:${COLORS[i % COLORS.length]}"></div></div>
                     </div>
-                    <div class="votes">${formatNumber(c.votos_actuales)}</div>
-                    <div class="votes">${formatNumber(c.votos_proyectados)}</div>
+                    <div class="votes pct-hide-mobile">${formatNumber(c.votos_actuales)}</div>
+                    <div class="votes pct-hide-mobile">${formatNumber(c.votos_proyectados)}</div>
                     <div class="pct-actual" style="color:#8899aa;text-align:right;font-size:0.9em">${c.pct_actual.toFixed(2)}%</div>
                     <div class="pct" style="color:${COLORS[i % COLORS.length]}">${c.pct_proyectado.toFixed(2)}%</div>
                     <div class="diff ${diffClass}">${diffSign}${c.diferencia.toFixed(2)}</div>
