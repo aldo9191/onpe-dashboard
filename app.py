@@ -31,10 +31,10 @@ cache_lock = Lock()
 CACHE_TTL = int(os.environ.get("CACHE_TTL", 120))  # 2 minutes default
 MC_REFRESH = int(os.environ.get("MC_REFRESH", 3600))  # 60 min default
 
-def get_json(url, retries=3):
+def get_json(url, retries=2):
     for i in range(retries):
         try:
-            r = requests.get(url, headers=HEADERS, timeout=30)
+            r = requests.get(url, headers=HEADERS, timeout=15)
             if r.status_code == 200 and "json" in r.headers.get("content-type", ""):
                 return r.json().get("data", {})
         except:
@@ -253,14 +253,18 @@ def fetch_projection():
 
 def background_refresh():
     """Background thread that refreshes cache periodically."""
+    time.sleep(10)  # Wait for app to start before first fetch
     while True:
         try:
+            print(f"[BG] Starting refresh...")
             data = fetch_projection()
             if data:
                 with cache_lock:
                     cache["data"] = data
                     cache["timestamp"] = time.time()
                 print(f"[BG] Refresh OK: {data['pct_actas']}% actas | {data['fetch_time']}")
+            else:
+                print(f"[BG] Refresh returned no data")
         except Exception as e:
             print(f"[BG] Refresh error: {e}")
         time.sleep(MC_REFRESH)
@@ -272,14 +276,24 @@ def api_proyeccion():
     with cache_lock:
         if cache["data"] and (now - cache["timestamp"]) < CACHE_TTL:
             return jsonify(cache["data"])
+        # If cache exists but expired, return stale data while refreshing in background
+        if cache["data"]:
+            stale = cache["data"].copy()
+            stale["stale"] = True
+            return jsonify(stale)
 
-    data = fetch_projection()
-    if data:
-        with cache_lock:
-            cache["data"] = data
-            cache["timestamp"] = now
-        return jsonify(data)
-    return jsonify({"error": "No se pudo obtener datos"}), 500
+    # No cache at all — try fetching (first load)
+    try:
+        data = fetch_projection()
+        if data:
+            with cache_lock:
+                cache["data"] = data
+                cache["timestamp"] = now
+            return jsonify(data)
+    except Exception as e:
+        print(f"[API] Fetch error: {e}")
+
+    return jsonify({"error": "Cargando datos... reintenta en 30 segundos"}), 503
 
 
 @app.route("/")
