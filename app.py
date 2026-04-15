@@ -181,7 +181,7 @@ def fetch_projection():
     }
 
     top5_partidos = [c["partido"] for c in candidatos[:5]]
-    N_SIMS = 5000
+    N_SIMS = 2000
 
     depto_names = df_meta["departamento"].values
     n_deptos = len(depto_names)
@@ -228,19 +228,12 @@ def fetch_projection():
             "pct_actual": candidatos[j]["pct_actual"],
         })
 
-    # Probability of 2nd place (segunda vuelta) for each top 5 candidate
-    # 1st place (Fujimori) is virtually guaranteed, so we calculate
-    # probability of being 2nd (highest after 1st) for each candidate
+    # Probability of 2nd place (segunda vuelta) — vectorized
+    # For each simulation, find who has the 2nd highest %
+    second_place_idx = np.argsort(mc_pcts, axis=1)[:, -2]  # index of 2nd highest per sim
     segunda_vuelta = []
     for j in range(n_top5):
-        # Count simulations where candidate j has the 2nd highest %
-        count_2nd = 0
-        for sim in range(N_SIMS):
-            sim_vals = mc_pcts[sim, :]
-            ranked = np.argsort(sim_vals)[::-1]
-            if ranked[1] == j:
-                count_2nd += 1
-        prob = round(count_2nd / N_SIMS * 100, 1)
+        prob = round(float(np.mean(second_place_idx == j)) * 100, 1)
         segunda_vuelta.append({
             "candidato": candidatos[j]["candidato"],
             "partido": top5_partidos[j],
@@ -510,7 +503,7 @@ DASHBOARD_HTML = r"""
 
         <div class="card" style="margin-bottom:20px;border:2px solid #e63946;">
             <h2 style="color:#e63946;font-size:1.2em;">Probabilidad de pasar a Segunda Vuelta</h2>
-            <p style="font-size:0.8em;color:#8899aa;margin-bottom:12px;">Basado en simulacion Monte Carlo (5,000 escenarios) · Se actualiza cada hora</p>
+            <p style="font-size:0.8em;color:#8899aa;margin-bottom:12px;">Basado en simulacion Monte Carlo (2,000 escenarios) · Se actualiza cada hora</p>
             <div id="segundaVueltaTable"></div>
         </div>
 
@@ -535,7 +528,7 @@ DASHBOARD_HTML = r"""
             </div>
 
             <div class="card">
-                <h2>Monte Carlo - Intervalos de Confianza (5,000 sims)</h2>
+                <h2>Monte Carlo - Intervalos de Confianza (2,000 sims)</h2>
                 <div class="chart-container">
                     <canvas id="chartMonteCarlo"></canvas>
                 </div>
