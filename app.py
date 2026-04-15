@@ -228,6 +228,26 @@ def fetch_projection():
             "pct_actual": candidatos[j]["pct_actual"],
         })
 
+    # Probability of 2nd place (segunda vuelta) for each top 5 candidate
+    # 1st place (Fujimori) is virtually guaranteed, so we calculate
+    # probability of being 2nd (highest after 1st) for each candidate
+    segunda_vuelta = []
+    for j in range(n_top5):
+        # Count simulations where candidate j has the 2nd highest %
+        count_2nd = 0
+        for sim in range(N_SIMS):
+            sim_vals = mc_pcts[sim, :]
+            ranked = np.argsort(sim_vals)[::-1]
+            if ranked[1] == j:
+                count_2nd += 1
+        prob = round(count_2nd / N_SIMS * 100, 1)
+        segunda_vuelta.append({
+            "candidato": candidatos[j]["candidato"],
+            "partido": top5_partidos[j],
+            "prob_segunda_vuelta": prob,
+        })
+    segunda_vuelta.sort(key=lambda x: x["prob_segunda_vuelta"], reverse=True)
+
     # Department detail
     deptos_detail = []
     for _, m in df_meta.sort_values("pct_actas" if "pct_actas" in df_meta.columns else "departamento").iterrows():
@@ -246,6 +266,7 @@ def fetch_projection():
         "total_votos_validos": totales["totalVotosValidos"],
         "candidatos": candidatos,
         "monte_carlo": mc_data,
+        "segunda_vuelta": segunda_vuelta,
         "departamentos": deptos_detail,
         "fetch_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
@@ -485,6 +506,12 @@ DASHBOARD_HTML = r"""
 
         <div class="progress-bar-outer">
             <div class="progress-bar-inner" id="progressBar" style="width:0%">0%</div>
+        </div>
+
+        <div class="card" style="margin-bottom:20px;border:2px solid #e63946;">
+            <h2 style="color:#e63946;font-size:1.2em;">Probabilidad de pasar a Segunda Vuelta</h2>
+            <p style="font-size:0.8em;color:#8899aa;margin-bottom:12px;">Basado en simulacion Monte Carlo (5,000 escenarios) · Se actualiza cada hora</p>
+            <div id="segundaVueltaTable"></div>
         </div>
 
         <div class="main-grid">
@@ -770,6 +797,28 @@ DASHBOARD_HTML = r"""
                     }
                 }
             });
+        }
+
+        // Segunda Vuelta probability table
+        if (data.segunda_vuelta && data.segunda_vuelta.length > 0) {
+            let svHtml = `<div style="display:flex;flex-wrap:wrap;gap:12px;justify-content:center;">`;
+            data.segunda_vuelta.forEach((sv, i) => {
+                if (sv.prob_segunda_vuelta < 0.1) return;
+                const prob = sv.prob_segunda_vuelta;
+                const barColor = prob > 50 ? '#4caf50' : prob > 10 ? '#ff9800' : '#ef5350';
+                const size = prob > 50 ? 'font-size:2.2em' : 'font-size:1.6em';
+                svHtml += `
+                    <div style="background:#0d1b2a;border-radius:10px;padding:15px 25px;text-align:center;min-width:200px;flex:1;border:1px solid ${barColor}44;">
+                        <div style="font-size:0.85em;color:#ccc;font-weight:600;">${shortName(sv.candidato)}</div>
+                        <div style="font-size:0.7em;color:#8899aa;margin-bottom:8px;">${sv.partido}</div>
+                        <div style="${size};font-weight:bold;color:${barColor};">${prob.toFixed(1)}%</div>
+                        <div style="width:100%;background:#1a2a3a;border-radius:4px;height:6px;margin-top:8px;">
+                            <div style="width:${prob}%;background:${barColor};height:100%;border-radius:4px;transition:width 0.5s;"></div>
+                        </div>
+                    </div>`;
+            });
+            svHtml += '</div>';
+            document.getElementById('segundaVueltaTable').innerHTML = svHtml;
         }
 
         // Monte Carlo table
