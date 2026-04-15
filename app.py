@@ -180,12 +180,12 @@ def fetch_projection():
         "PARTIDO FRENTE DE LA ESPERANZA 2021": 0.878,
     }
 
-    top5_partidos = [c["partido"] for c in candidatos[:5]]
-    N_SIMS = 2000
+    top5_partidos = [c["partido"] for c in candidatos[:3]]
+    N_SIMS = 5000
 
     depto_names = df_meta["departamento"].values
     n_deptos = len(depto_names)
-    n_top5 = 5
+    n_top5 = 3
 
     pct_matrix = np.zeros((n_deptos, n_top5))
     weight_vec = np.zeros(n_deptos)
@@ -503,7 +503,7 @@ DASHBOARD_HTML = r"""
 
         <div class="card" style="margin-bottom:20px;border:2px solid #e63946;">
             <h2 style="color:#e63946;font-size:1.2em;">Probabilidad de pasar a Segunda Vuelta</h2>
-            <p style="font-size:0.8em;color:#8899aa;margin-bottom:12px;">Basado en simulacion Monte Carlo (2,000 escenarios) · Se actualiza cada hora</p>
+            <p style="font-size:0.8em;color:#8899aa;margin-bottom:12px;">Basado en simulacion Monte Carlo (5,000 escenarios) · Se actualiza cada hora</p>
             <div id="segundaVueltaTable"></div>
         </div>
 
@@ -528,7 +528,7 @@ DASHBOARD_HTML = r"""
             </div>
 
             <div class="card">
-                <h2>Monte Carlo - Intervalos de Confianza (2,000 sims)</h2>
+                <h2>Monte Carlo - Intervalos de Confianza (5,000 sims)</h2>
                 <div class="chart-container">
                     <canvas id="chartMonteCarlo"></canvas>
                 </div>
@@ -624,7 +624,7 @@ DASHBOARD_HTML = r"""
         pbar.textContent = data.pct_actas.toFixed(2) + '%';
 
         // Candidate list - TOP 5 only
-        const top5 = data.candidatos.slice(0, 5);
+        const top5 = data.candidatos.slice(0, 3);
         let html = `
             <div class="candidate-row" style="border-bottom:2px solid #2a3a4a;padding-bottom:6px;margin-bottom:4px;">
                 <div style="font-size:0.75em;color:#4fc3f7;font-weight:600">#</div>
@@ -657,7 +657,7 @@ DASHBOARD_HTML = r"""
         document.getElementById('candidateList').innerHTML = html;
 
         // Charts - TOP 5 only
-        const chartTop5 = data.candidatos.slice(0, 5);
+        const chartTop5 = data.candidatos.slice(0, 3);
         const labels = chartTop5.map(c => shortName(c.candidato));
 
         // Chart 1: Comparison bars
