@@ -14,8 +14,16 @@ app = Flask(__name__)
 
 BASE = "https://resultadoelectoral.onpe.gob.pe/presentacion-backend"
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-    "Referer": "https://resultadoelectoral.onpe.gob.pe/main/presidenciales"
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Accept": "application/json, text/plain, */*",
+    "Referer": "https://resultadoelectoral.onpe.gob.pe/main/presidenciales",
+    "sec-ch-ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": '"macOS"',
+    "sec-fetch-dest": "empty",
+    "sec-fetch-mode": "cors",
+    "sec-fetch-site": "same-origin",
+    "Accept-Language": "es-PE,es;q=0.9",
 }
 
 cache = {"data": None, "timestamp": 0}
