@@ -32,9 +32,15 @@ CACHE_TTL = int(os.environ.get("CACHE_TTL", 120))  # 2 minutes default
 MC_REFRESH = int(os.environ.get("MC_REFRESH", 3600))  # 60 min default
 
 def get_json(url, retries=2):
+    # Add cache-busting param to bypass CloudFront CDN cache
+    separator = "&" if "?" in url else "?"
+    cache_bust_url = f"{url}{separator}_t={int(time.time() * 1000)}"
+    headers = HEADERS.copy()
+    headers["Cache-Control"] = "no-cache, no-store"
+    headers["Pragma"] = "no-cache"
     for i in range(retries):
         try:
-            r = requests.get(url, headers=HEADERS, timeout=15)
+            r = requests.get(cache_bust_url, headers=headers, timeout=15)
             if r.status_code == 200 and "json" in r.headers.get("content-type", ""):
                 return r.json().get("data", {})
         except:
