@@ -88,6 +88,9 @@ def fetch_projection():
         if tot:
             meta["pct_actas"] = tot.get("actasContabilizadas", 0)
             meta["votos_validos"] = tot.get("totalVotosValidos", 0)
+            meta["contabilizadas"] = tot.get("contabilizadas", 0)
+            meta["enviadasJee"] = tot.get("enviadasJee", 0)
+            meta["pendientesJee"] = tot.get("pendientesJee", 0)
         if parti:
             meta["electores_habiles"] = parti.get("totalElectoresHabiles", 0)
         else:
@@ -110,6 +113,9 @@ def fetch_projection():
     if tot_ext:
         meta_ext["pct_actas"] = tot_ext.get("actasContabilizadas", 0)
         meta_ext["votos_validos"] = tot_ext.get("totalVotosValidos", 0)
+        meta_ext["contabilizadas"] = tot_ext.get("contabilizadas", 0)
+        meta_ext["enviadasJee"] = tot_ext.get("enviadasJee", 0)
+        meta_ext["pendientesJee"] = tot_ext.get("pendientesJee", 0)
     if parti_ext:
         meta_ext["electores_habiles"] = parti_ext.get("totalElectoresHabiles", 0)
     all_meta.append(meta_ext)
@@ -170,79 +176,89 @@ def fetch_projection():
 
     candidatos.sort(key=lambda x: x["pct_proyectado"], reverse=True)
 
-    # Monte Carlo simulation (vectorized, top 5 only)
-    # Uses INTRA-DEPARTMENT std from district-level analysis (pre-calculated)
-    # This reflects the real uncertainty of pending actas within each department
-    INTRA_DEPT_STD = {
-        "FUERZA POPULAR": 6.759,
-        "RENOVACIÓN POPULAR": 3.869,
-        "PARTIDO DEL BUEN GOBIERNO": 3.492,
-        "JUNTOS POR EL PERÚ": 12.245,
-        "PARTIDO CÍVICO OBRAS": 3.842,
-        "PARTIDO PAÍS PARA TODOS": 2.794,
-        "AHORA NACIÓN - AN": 3.185,
-        "PRIMERO LA GENTE – COMUNIDAD, ECOLOGÍA, LIBERTAD Y PROGRESO": 1.353,
-        "PARTIDO SICREO": 1.239,
-        "PARTIDO FRENTE DE LA ESPERANZA 2021": 0.878,
-    }
-
-    top5_partidos = [c["partido"] for c in candidatos[:3]]
+    # Monte Carlo with JEE vs Pendientes separation
+    # Pendientes = in transit, high certainty (~95% will be counted)
+    # JEE = observed/challenged, uncertain (60-95% resolution rate)
+    INTRA_STD = {"JUNTOS POR EL PERÚ": 12.245, "RENOVACIÓN POPULAR": 3.869}
+    top3_partidos = [c["partido"] for c in candidatos[:3]]
     N_SIMS = 5000
 
-    depto_names = df_meta["departamento"].values
-    n_deptos = len(depto_names)
-    n_top5 = 3
+    # Get current vote totals for top 3
+    top3_votos = {c["partido"]: c["votos_actuales"] for c in candidatos[:3]}
 
-    pct_matrix = np.zeros((n_deptos, n_top5))
-    weight_vec = np.zeros(n_deptos)
-    uncert_vec = np.zeros(n_deptos)
+    # Build per-zone data with JEE/Pend split
+    zone_data = []
+    for _, m in df_meta.iterrows():
+        depto = m["departamento"]
+        contab = m.get("contabilizadas", 0) or m.get("actas_contab", 0) or 1
+        vv = m.get("votos_validos", 0)
+        avg_v = vv / contab if contab > 0 else 0
+        jee = m.get("enviadasJee", 0) or 0
+        pend = m.get("pendientesJee", 0) or 0
 
-    for i, depto in enumerate(depto_names):
-        meta_row = df_meta[df_meta["departamento"] == depto].iloc[0]
-        weight_vec[i] = meta_row["peso"]
-        pct_actas = meta_row.get("pct_actas", 100)
-        uncert_vec[i] = max(0, (100 - pct_actas) / 100)
-
-        for j, partido in enumerate(top5_partidos):
+        pcts = {}
+        for p in top3_partidos:
             matching = [v for v in all_votos
-                        if v["departamento"] == depto and v["nombreAgrupacionPolitica"] == partido]
-            if matching:
-                pct_val = matching[0].get("porcentajeVotosValidos")
-                pct_matrix[i, j] = pct_val if pct_val is not None else 0
+                        if v["departamento"] == depto and v["nombreAgrupacionPolitica"] == p]
+            pcts[p] = matching[0].get("porcentajeVotosValidos", 0) if matching else 0
+            if pcts[p] is None:
+                pcts[p] = 0
 
-    # Use pre-calculated intra-department std from district analysis
-    std_vec = np.array([INTRA_DEPT_STD.get(p, 2.0) for p in top5_partidos])
+        zone_data.append({"depto": depto, "jee": jee, "pend": pend, "avg": avg_v, "pcts": pcts})
 
-    mc_pcts = np.zeros((N_SIMS, n_top5))
+    # Run Monte Carlo
+    mc_votos = {p: np.zeros(N_SIMS) for p in top3_partidos}
+
     for sim in range(N_SIMS):
-        noise = np.random.randn(n_deptos, n_top5) * std_vec[np.newaxis, :] * uncert_vec[:, np.newaxis]
-        sim_pct = np.maximum(0, pct_matrix + noise)
-        # No normalization: weighted sum of % already gives national %
-        mc_pcts[sim, :] = (sim_pct * weight_vec[:, np.newaxis]).sum(axis=0)
+        for p in top3_partidos:
+            mc_votos[p][sim] = top3_votos[p]
+
+        for z in zone_data:
+            for p in top3_partidos:
+                std = INTRA_STD.get(p, 2.0)
+                base_pct = z["pcts"][p]
+
+                # Pendientes: 95% counted
+                if z["pend"] > 0:
+                    n_pend = np.random.binomial(z["pend"], 0.95)
+                    noise = np.random.normal(0, std * 0.1)
+                    mc_votos[p][sim] += n_pend * z["avg"] * max(0, base_pct + noise) / 100
+
+                # JEE: 60-95% resolution rate
+                if z["jee"] > 0:
+                    jee_rate = np.random.uniform(0.60, 0.95)
+                    n_jee = np.random.binomial(z["jee"], jee_rate)
+                    noise = np.random.normal(0, std * 0.1)
+                    mc_votos[p][sim] += n_jee * z["avg"] * max(0, base_pct + noise) / 100
+
+    # Build MC results
+    mc_total = sum(mc_votos[p] for p in top3_partidos)
+    mc_pcts_arr = np.column_stack([mc_votos[p] / mc_total * 100 for p in top3_partidos])
 
     mc_data = []
-    for j in range(n_top5):
-        sims = mc_pcts[:, j]
+    for j, p in enumerate(top3_partidos):
+        sims = mc_votos[p]
+        pct_sims = mc_pcts_arr[:, j]
         mc_data.append({
-            "partido": top5_partidos[j],
+            "partido": p,
             "candidato": candidatos[j]["candidato"],
-            "mean": round(float(np.mean(sims)), 2),
-            "p5": round(float(np.percentile(sims, 5)), 2),
-            "p25": round(float(np.percentile(sims, 25)), 2),
-            "p75": round(float(np.percentile(sims, 75)), 2),
-            "p95": round(float(np.percentile(sims, 95)), 2),
+            "mean": round(float(np.mean(pct_sims)), 2),
+            "p5": round(float(np.percentile(pct_sims, 5)), 2),
+            "p25": round(float(np.percentile(pct_sims, 25)), 2),
+            "p75": round(float(np.percentile(pct_sims, 75)), 2),
+            "p95": round(float(np.percentile(pct_sims, 95)), 2),
             "pct_actual": candidatos[j]["pct_actual"],
+            "votos_mean": round(float(np.mean(sims))),
         })
 
-    # Probability of 2nd place (segunda vuelta) — vectorized
-    # For each simulation, find who has the 2nd highest %
-    second_place_idx = np.argsort(mc_pcts, axis=1)[:, -2]  # index of 2nd highest per sim
+    # Probability of 2nd place (segunda vuelta)
+    second_place_idx = np.argsort(mc_pcts_arr, axis=1)[:, -2]
     segunda_vuelta = []
-    for j in range(n_top5):
+    for j in range(len(top3_partidos)):
         prob = round(float(np.mean(second_place_idx == j)) * 100, 1)
         segunda_vuelta.append({
             "candidato": candidatos[j]["candidato"],
-            "partido": top5_partidos[j],
+            "partido": top3_partidos[j],
             "prob_segunda_vuelta": prob,
         })
     segunda_vuelta.sort(key=lambda x: x["prob_segunda_vuelta"], reverse=True)
