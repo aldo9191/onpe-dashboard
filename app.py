@@ -176,21 +176,50 @@ def fetch_projection():
 
     candidatos.sort(key=lambda x: x["pct_proyectado"], reverse=True)
 
+    # Improved bottom-up projection with JEE/Pendientes
+    # Estimate final votes per candidate using acta-level projection
+    total_current_vv = sum(r["votos"] for r in results.values())
+    for c in candidatos:
+        est_pend = 0
+        est_jee = 0
+        for _, m in df_meta.iterrows():
+            depto = m["departamento"]
+            contab = m.get("contabilizadas", 0) or 1
+            vv = m.get("votos_validos", 0)
+            avg_v = vv / contab if contab > 0 else 0
+            jee = m.get("enviadasJee", 0) or 0
+            pend = m.get("pendientesJee", 0) or 0
+            matching = [v for v in all_votos
+                        if v["departamento"] == depto and v["nombreAgrupacionPolitica"] == c["partido"]]
+            local_pct = 0
+            if matching:
+                local_pct = matching[0].get("porcentajeVotosValidos", 0) or 0
+            est_pend += pend * avg_v * local_pct / 100 * 0.95
+            est_jee += jee * avg_v * local_pct / 100 * 0.80  # assume 80% JEE resolution
+        c["votos_proyectados"] = round(c["votos_actuales"] + est_pend + est_jee)
+
+    # Recalculate projected percentages from projected votes
+    total_proy_vv = sum(c["votos_proyectados"] for c in candidatos)
+    for c in candidatos:
+        c["pct_proyectado"] = round(c["votos_proyectados"] / total_proy_vv * 100, 3) if total_proy_vv > 0 else 0
+        c["diferencia"] = round(c["pct_proyectado"] - c["pct_actual"], 3)
+
+    candidatos.sort(key=lambda x: x["pct_proyectado"], reverse=True)
+
     # Monte Carlo with JEE vs Pendientes separation
-    # Pendientes = in transit, high certainty (~95% will be counted)
-    # JEE = observed/challenged, uncertain (60-95% resolution rate)
     INTRA_STD = {"JUNTOS POR EL PERÚ": 12.245, "RENOVACIÓN POPULAR": 3.869}
     top3_partidos = [c["partido"] for c in candidatos[:3]]
     N_SIMS = 5000
 
-    # Get current vote totals for top 3
-    top3_votos = {c["partido"]: c["votos_actuales"] for c in candidatos[:3]}
+    # Current votes for ALL candidates (for proper national % calculation)
+    all_current_votos = {c["partido"]: c["votos_actuales"] for c in candidatos}
+    total_other_votos = sum(v for p, v in all_current_votos.items() if p not in top3_partidos)
 
-    # Build per-zone data with JEE/Pend split
+    # Build per-zone data
     zone_data = []
     for _, m in df_meta.iterrows():
         depto = m["departamento"]
-        contab = m.get("contabilizadas", 0) or m.get("actas_contab", 0) or 1
+        contab = m.get("contabilizadas", 0) or 1
         vv = m.get("votos_validos", 0)
         avg_v = vv / contab if contab > 0 else 0
         jee = m.get("enviadasJee", 0) or 0
@@ -211,34 +240,37 @@ def fetch_projection():
 
     for sim in range(N_SIMS):
         for p in top3_partidos:
-            mc_votos[p][sim] = top3_votos[p]
+            mc_votos[p][sim] = all_current_votos[p]
 
         for z in zone_data:
             for p in top3_partidos:
                 std = INTRA_STD.get(p, 2.0)
                 base_pct = z["pcts"][p]
 
-                # Pendientes: 95% counted
                 if z["pend"] > 0:
                     n_pend = np.random.binomial(z["pend"], 0.95)
                     noise = np.random.normal(0, std * 0.1)
                     mc_votos[p][sim] += n_pend * z["avg"] * max(0, base_pct + noise) / 100
 
-                # JEE: 60-95% resolution rate
                 if z["jee"] > 0:
                     jee_rate = np.random.uniform(0.60, 0.95)
                     n_jee = np.random.binomial(z["jee"], jee_rate)
                     noise = np.random.normal(0, std * 0.1)
                     mc_votos[p][sim] += n_jee * z["avg"] * max(0, base_pct + noise) / 100
 
-    # Build MC results
-    mc_total = sum(mc_votos[p] for p in top3_partidos)
-    mc_pcts_arr = np.column_stack([mc_votos[p] / mc_total * 100 for p in top3_partidos])
+    # Estimate total votes (all candidates) for proper % calculation
+    # Other candidates also get proportional increase from pending/JEE actas
+    total_pending_votos = sum(z["pend"] * z["avg"] * 0.95 + z["jee"] * z["avg"] * 0.80 for z in zone_data)
+    other_share = total_other_votos / total_current_vv if total_current_vv > 0 else 0.5
+    est_other_final = total_other_votos + total_pending_votos * other_share
 
+    # Build MC results with national %
     mc_data = []
     for j, p in enumerate(top3_partidos):
-        sims = mc_votos[p]
-        pct_sims = mc_pcts_arr[:, j]
+        # National % = candidate votes / (candidate votes + other candidates)
+        mc_total_per_sim = mc_votos[top3_partidos[0]] + mc_votos[top3_partidos[1]] + mc_votos[top3_partidos[2]] + est_other_final
+        pct_sims = mc_votos[p] / mc_total_per_sim * 100
+
         mc_data.append({
             "partido": p,
             "candidato": candidatos[j]["candidato"],
@@ -248,19 +280,19 @@ def fetch_projection():
             "p75": round(float(np.percentile(pct_sims, 75)), 2),
             "p95": round(float(np.percentile(pct_sims, 95)), 2),
             "pct_actual": candidatos[j]["pct_actual"],
-            "votos_mean": round(float(np.mean(sims))),
+            "votos_mean": round(float(np.mean(mc_votos[p]))),
         })
 
-    # Probability of 2nd place (segunda vuelta)
-    second_place_idx = np.argsort(mc_pcts_arr, axis=1)[:, -2]
-    segunda_vuelta = []
-    for j in range(len(top3_partidos)):
-        prob = round(float(np.mean(second_place_idx == j)) * 100, 1)
-        segunda_vuelta.append({
-            "candidato": candidatos[j]["candidato"],
-            "partido": top3_partidos[j],
-            "prob_segunda_vuelta": prob,
-        })
+    # Probability of 2nd place (segunda vuelta) — compare only positions 2 and 3
+    # (position 1 is Keiko, virtually guaranteed)
+    diff_2v3 = mc_votos[top3_partidos[1]] - mc_votos[top3_partidos[2]]
+    prob_1_is_2nd = float(np.mean(diff_2v3 > 0)) * 100
+    prob_2_is_2nd = 100 - prob_1_is_2nd
+
+    segunda_vuelta = [
+        {"candidato": candidatos[1]["candidato"], "partido": top3_partidos[1], "prob_segunda_vuelta": round(prob_1_is_2nd, 1)},
+        {"candidato": candidatos[2]["candidato"], "partido": top3_partidos[2], "prob_segunda_vuelta": round(prob_2_is_2nd, 1)},
+    ]
     segunda_vuelta.sort(key=lambda x: x["prob_segunda_vuelta"], reverse=True)
 
     # Department detail
